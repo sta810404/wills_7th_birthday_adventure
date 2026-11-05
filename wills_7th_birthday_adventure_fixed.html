@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#77c8ef">
+<title>WILL'S 7TH BIRTHDAY ADVENTURE</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#79c9ed;font-family:system-ui,"Noto Sans TC",sans-serif;touch-action:none}
+#wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(#72c8f1 0%,#bcecff 72%,#78bf58 72%)}
+canvas{display:block;width:min(100vw,900px);height:min(100vh,600px);max-width:100%;max-height:100%;image-rendering:pixelated;background:#8bd5f5;box-shadow:0 8px 30px #24556b55}
+#hud{position:absolute;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(94vw,860px);display:flex;justify-content:space-between;align-items:center;gap:8px;color:#fff;font-weight:900;text-shadow:2px 2px #344b62;pointer-events:none}
+.pill{background:#263d55d9;border:3px solid #fff;border-radius:12px;padding:6px 10px;font-size:clamp(12px,2.5vw,17px);box-shadow:0 3px 0 #172b3d}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#12283b66;padding:18px}
+.panel{width:min(92vw,440px);background:#fff4d9;border:6px solid #6b4729;box-shadow:0 8px 0 #3e2b1e;border-radius:8px;text-align:center;padding:22px 18px;color:#3b2a20}
+h1{font-size:clamp(24px,6vw,38px);line-height:1.05;margin:0 0 10px;color:#e45c37;text-shadow:2px 2px #ffd36c}
+.panel p{font-weight:750;line-height:1.55;margin:8px 0 16px}
+button{border:0;border-radius:8px;background:#42a943;color:white;font-weight:900;font-size:18px;padding:12px 24px;box-shadow:0 5px 0 #246c2a;cursor:pointer}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #246c2a}
+#controls{position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:space-between;align-items:end;padding:0 max(18px,4vw);pointer-events:none}
+.cluster{display:flex;gap:12px;pointer-events:auto}
+.ctrl{width:64px;height:64px;border-radius:14px;background:#243b56d9;border:3px solid #fff;color:white;font-size:27px;box-shadow:0 5px 0 #14283b;touch-action:none;user-select:none}
+.ctrl.jump{width:82px;background:#e65b43}
+.hint{font-size:12px;color:#70513a}
+@media(min-width:700px){#controls{opacity:.78}.ctrl{width:58px;height:58px}}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="game" width="900" height="600" aria-label="Will birthday platform game"></canvas>
+<div id="hud">
+ <div class="pill" id="level">🎂 第 1 關：生日草原</div>
+ <div class="pill" id="score">⭐ 0</div>
+ <div class="pill" id="lives">❤️❤️❤️</div>
+</div>
+<div id="overlay">
+ <div class="panel">
+  <h1>WILL'S 7TH<br>BIRTHDAY!</h1>
+  <p>🎁 Will 的方塊生日大冒險 🎂<br>收集禮物與鑽石，避開瀑布和陷阱，最後抵達生日蛋糕！</p>
+  <p class="hint">電腦：← → 移動・空白鍵跳躍<br>手機：使用下方按鈕操作</p>
+  <button id="start">開始冒險！</button>
+ </div>
+</div>
+<div id="controls">
+ <div class="cluster">
+  <button class="ctrl" id="left" aria-label="向左">◀</button>
+  <button class="ctrl" id="right" aria-label="向右">▶</button>
+ </div>
+ <button class="ctrl jump" id="jump" aria-label="跳躍">⬆</button>
+</div>
+</div>
+<script>
+(()=>{
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+const W=900,H=600,ground=500;
+let state='title',level=0,score=0,lives=3,camera=0,frame=0;
+const keys={left:false,right:false,jump:false};
+const player={x:70,y:ground-58,w:38,h:58,vx:0,vy:0,on:false,inv:0,face:1};
+let platforms=[],items=[],hazards=[],goal=0,worldW=2100,checkpoint=70;
+const levelNames=['生日草原','鑽石礦坑','生日城堡'];
+function rect(x,y,w,h,color){ctx.fillStyle=color;ctx.fillRect(Math.round(x),Math.round(y),w,h)}
+function block(x,y,s,color,edge='#00000022'){rect(x,y,s,s,color);rect(x,y,s,4,edge);rect(x,y,4,s,edge)}
+function buildLevel(){
+ platforms=[];items=[];hazards=[];worldW=2100+level*200;
+ // Continuous, fair ground sections with short jumpable gaps.
+ // The previous layout accidentally skipped entire ground sections.
+ for(let x=0, i=0; x<worldW; x+=320, i++){
+  platforms.push({x,y:ground,w:Math.min(i%4===2?250:270,worldW-x),h:100,type:'ground'});
+ }
+ // raised platforms
+ for(let i=0;i<12+level*2;i++){
+  let px=210+i*145+(i%2)*25, py=ground-105-(i%3)*48;
+  platforms.push({x:px,y:py,w:90+(i%2)*25,h:18,type:'float'});
+  if(i%2===0) items.push({x:px+35,y:py-34,type:'gift',got:false});
+ }
+ for(let i=0;i<9;i++){
+  let hx=370+i*205;
+  hazards.push({x:hx,y:ground-28,w:42,h:28,type:(level===1?'waterfall':'tnt')});
+  if(i%2===0)items.push({x:hx+65,y:ground-75,type:'coin',got:false});
+ }
+ for(let i=0;i<8;i++)items.push({x:180+i*220,y:ground-60-(i%2)*80,type:'diamond',got:false});
+ goal=worldW-140;
+ if(level===2) items.push({x:goal-70,y:ground-90,type:'cake',got:false});
+ player.x=70;player.y=ground-player.h;player.vx=0;player.vy=0;camera=0;checkpoint=70;
+}
+function start(){score=0;lives=3;level=0;buildLevel();state='play';document.getElementById('overlay').style.display='none';updateHud()}
+function updateHud(){document.getElementById('score').textContent='⭐ '+score;document.getElementById('lives').textContent='❤️'.repeat(lives);document.getElementById('level').textContent='🎂 第 '+(level+1)+' 關：'+levelNames[level]}
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function hurt(){if(player.inv>0)return;lives--;player.inv=90;player.vy=-7;player.x=Math.max(checkpoint,player.x-65);updateHud();if(lives<=0)end(false)}
+function end(win){
+ state=win?'win':'over';const ov=document.getElementById('overlay');ov.style.display='flex';
+ ov.innerHTML=`<div class="panel"><h1>${win?'🎉 HAPPY BIRTHDAY, WILL!':'遊戲結束'}</h1><p>${win?'Will 成功找到七歲生日蛋糕！':'再試一次，生日冒險還在等你！'}<br>總分：⭐ ${score}</p><button id="again">${win?'再玩一次':'重新挑戰'}</button></div>`;
+ document.getElementById('again').onclick=start;
+}
+function nextLevel(){level++;if(level>=3){end(true);return}buildLevel();updateHud()}
+function update(){
+ if(state!=='play')return;frame++;
+ const speed=4.3;
+ player.vx=(keys.right?speed:0)-(keys.left?speed:0);
+ if(player.vx)player.face=Math.sign(player.vx);
+ player.x+=player.vx;
+ if(keys.jump&&player.on){player.vy=-12.8;player.on=false}
+ player.vy+=.58; if(player.vy>14)player.vy=14;
+ let oldY=player.y;player.y+=player.vy;player.on=false;
+ // land on platforms
+ for(const p of platforms){if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){player.y=p.y-player.h;player.vy=0;player.on=true}}
+ // world floor gaps: fall = damage
+ if(player.y>H+40){hurt();player.y=ground-player.h;player.vy=0}
+ player.x=Math.max(0,Math.min(worldW-player.w,player.x));
+ const box={x:player.x+5,y:player.y+4,w:player.w-10,h:player.h-5};
+ for(const h of hazards){if(hit(box,h))hurt()}
+ for(const it of items){if(it.got)continue;let r={x:it.x-13,y:it.y-18,w:27,h:35};if(hit(box,r)){it.got=true;score+=it.type==='gift'?30:it.type==='diamond'?20:it.type==='cake'?50:10;updateHud();}}
+ if(player.inv>0)player.inv--;
+ camera=Math.max(0,Math.min(worldW-W,player.x-300));
+ // Cross the finish gate to advance to the final birthday cake.
+ if(player.x>goal+35){
+   if(level<2) nextLevel();
+   else end(true);
+   return;
+ }
+}
+function drawSky(){
+ rect(0,0,W,H,'#8bd5f5');
+ // blocky clouds
+ for(let i=0;i<7;i++){let x=((i*190-camera*.18)%(W+180)+W+180)%(W+180)-80;let y=65+(i%3)*48;rect(x,y,70,22,'#fff');rect(x+18,y-14,38,18,'#fff');rect(x+55,y+8,28,14,'#fff')}
+ // distant block hills
+ for(let i=0;i<12;i++){let x=i*110-(camera*.35%110);rect(x,390,112,110,'#72bd62');rect(x,390,112,12,'#9add70')}
+}
+function drawWorld(){
+ ctx.save();ctx.translate(-camera,0);
+ // ground and platforms
+ for(const p of platforms){if(p.x+p.w<camera-20||p.x>camera+W+20)continue;
+  if(p.type==='ground'){rect(p.x,p.y,p.w,p.h,'#8b5a35');rect(p.x,p.y,p.w,13,'#59b84b');for(let bx=p.x;bx<p.x+p.w;bx+=32){rect(bx,p.y+18,16,18,'#74462e');rect(bx+16,p.y+52,16,18,'#a56b40')}}
+  else{rect(p.x,p.y,p.w,p.h,'#a8794b');rect(p.x,p.y,p.w,6,'#5cb84b');for(let bx=p.x;bx<p.x+p.w;bx+=22)rect(bx,p.y+7,3,10,'#80532f')}
+ }
+ // hazards
+ for(const h of hazards){if(h.x<camera-40||h.x>camera+W+40)continue;
+  if(h.type==='waterfall'){
+   rect(h.x,h.y,h.w,h.h,'#268bd8');rect(h.x+5,h.y+3,8,h.h-6,'#8ce8ff');
+   rect(h.x+23,h.y+8,7,h.h-10,'#69cfff');rect(h.x,h.y+h.h-5,h.w,5,'#d8f7ff');
+  }else{
+   rect(h.x,h.y,h.w,h.h,'#d94b3e');rect(h.x+5,h.y+5,h.w-10,7,'#f5d36a');
+   rect(h.x+15,h.y+14,12,12,'#333');
+  }
+ }
+ // collectibles
+ for(const it of items){if(it.got||it.x<camera-40||it.x>camera+W+40)continue;
+  if(it.type==='gift'){block(it.x-12,it.y-12,25,'#e95786');rect(it.x-3,it.y-12,6,25,'#ffe36a');rect(it.x-12,it.y-3,25,6,'#ffe36a');rect(it.x-8,it.y-19,8,8,'#ffe36a');rect(it.x+1,it.y-19,8,8,'#ffe36a')}
+  if(it.type==='coin'){ctx.fillStyle='#ffd83d';ctx.fillRect(it.x-9,it.y-13,18,26);ctx.fillStyle='#fff29b';ctx.fillRect(it.x-4,it.y-8,5,16)}
+  if(it.type==='diamond'){block(it.x-11,it.y-11,22,'#39e5e8');rect(it.x-5,it.y-5,6,6,'#b8ffff')}
+  if(it.type==='cake'){rect(it.x-24,it.y-20,48,32,'#ffb1c9');rect(it.x-24,it.y-20,48,8,'#fff1e7');rect(it.x-18,it.y-29,5,12,'#ffdf4f');rect(it.x-20,it.y-34,9,7,'#ff713d');rect(it.x+4,it.y-29,5,12,'#ffdf4f');rect(it.x+2,it.y-34,9,7,'#ff713d')}
+ }
+ // finish gate
+ rect(goal+50,ground-105,12,105,'#8b5a35');rect(goal+110,ground-105,12,105,'#8b5a35');rect(goal+50,ground-105,72,14,'#e84d62');rect(goal+65,ground-91,42,34,'#fff1dc'); 
+ // player (voxel boy Will)
+ if(!(player.inv>0&&Math.floor(frame/6)%2===0)){
+  const x=player.x,y=player.y;
+  // legs
+  rect(x+7,y+40,11,18,'#294d9b');rect(x+22,y+40,11,18,'#294d9b');
+  rect(x+5,y+54,14,5,'#49352b');rect(x+21,y+54,14,5,'#49352b');
+  // body blue shirt
+  rect(x+5,y+20,29,23,'#2788d8');rect(x+2,y+22,6,18,'#2788d8');rect(x+32,y+22,6,18,'#2788d8');
+  // head / hair
+  rect(x+5,y,29,23,'#f2bd8c');rect(x+4,y-3,30,8,'#68452d');rect(x+4,y+2,7,7,'#68452d');rect(x+27,y+2,7,5,'#68452d');
+  // eyes direction
+  rect(x+(player.face>0?24:10),y+9,4,4,'#252525');rect(x+(player.face>0?28:6),y+15,4,2,'#b85c50');
+ }
+ ctx.restore();
+}
+function draw(){
+ drawSky();drawWorld();
+ // level sign
+ ctx.fillStyle='#fff';ctx.font='bold 18px system-ui';ctx.textAlign='center';ctx.fillText('WILL’S BIRTHDAY QUEST',450,28);
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+document.getElementById('start').onclick=start;
+function bindHold(id,key){const el=document.getElementById(id);el.addEventListener('pointerdown',e=>{e.preventDefault();keys[key]=true;el.setPointerCapture(e.pointerId)});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>el.addEventListener(ev,e=>{keys[key]=false}))}
+bindHold('left','left');bindHold('right','right');bindHold('jump','jump');
+window.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight',' ','ArrowUp'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft'||e.key==='a')keys.left=true;if(e.key==='ArrowRight'||e.key==='d')keys.right=true;if(e.key===' '||e.key==='ArrowUp'||e.key==='w')keys.jump=true;if(e.key==='Enter'&&state!=='play')start()});
+window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='a')keys.left=false;if(e.key==='ArrowRight'||e.key==='d')keys.right=false;if(e.key===' '||e.key==='ArrowUp'||e.key==='w')keys.jump=false});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.left=keys.right=keys.jump=false}});
+buildLevel();loop();
+})();
+</script>
+</body>
+</html>
